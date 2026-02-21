@@ -1,14 +1,15 @@
 # Fast-Browser 🚀
 
-A **Playwright Firefox** browser pre-configured for fast, clean, and ad-free browsing — optimized for **IRCTC ticket booking**.
+A **Playwright Firefox** browser pre-configured for fast, clean, ad-free browsing — optimized for **IRCTC ticket booking**.
 
 ## Features
-- 🚫 **Ad Blocker** — Blocks 30+ known ad/tracker networks via network route interception
-- 🍪 **Third-party cookies blocked** — Ads can't track you, but IRCTC session cookies still work
-- 🗑️ **Cache fully disabled** — No stale data, always fresh page loads
-- 🛡️ **Strict Tracking Protection** — Firefox ETP set to strict mode
-- ⚡ **Performance tuned** — Max connections increased for faster loading
-- 🔕 **No popups** — Geo, notifications, and push disabled
+- 🕵️ **Stealth Mode** — Bypasses Akamai/Cloudflare bot detection (`playwright-stealth`)
+- 🚫 **Smart Ad Blocker** — Blocks 30+ ad/tracker domains, whitelists IRCTC & payment gateways
+- 🍪 **Third-party cookies blocked** — Ads can't track; IRCTC session works fine
+- 🗑️ **Cache fully disabled** — No stale data, always fresh loads
+- 📺 **Full HD 1920×1080** — Proper resolution so all UI elements show correctly
+- 🔓 **HTTPS errors ignored** — No more "Connection not secure" warnings
+- 🇮🇳 **Indian locale + IST timezone** — en-IN locale, Asia/Kolkata timezone
 
 ## Installation
 
@@ -23,31 +24,42 @@ pip install -r requirements.txt
 # 3. Install Firefox for Playwright
 playwright install firefox
 
-# 4. Run the script
+# 4. Run!
 python3 irctc_browser.py
 ```
 
-## How It Works
+## What Was Fixed (v3)
 
-| Feature | Method |
-|---|---|
-| Disable disk/memory cache | `firefox_user_prefs` → `browser.cache.*: False` |
-| Block 3rd-party cookies | `cookieBehavior: 1` |
-| Ad blocker | `page.route()` intercepts & aborts ad domains |
-| Strict tracking protection | Firefox built-in ETP set to `strict` |
-| Clear old cookies | `context.clear_cookies()` on every launch |
+| Problem | Root Cause | Fix |
+|---|---|---|
+| "Unable to Process Request" error | Akamai bot detection blocked Playwright | `playwright-stealth` hides automation fingerprints |
+| "Connection not secured" | Mixed content / SSL cert mismatch | `ignore_https_errors=True` + mixed content unblocked |
+| Bad resolution / broken layout | No viewport set | `1920x1080` viewport + screen size set |
+| UI elements missing | Ad blocker too aggressive | IRCTC + Akamai CDN domains whitelisted |
+
+## How the Smart Ad Blocker Works
+
+```
+Request comes in
+      ↓
+Is it irctc.co.in / akamaized.net / razorpay etc? → ✅ ALLOW
+      ↓
+Is it doubleclick / taboola / criteo etc?          → ❌ BLOCK
+      ↓
+Everything else                                    → ✅ ALLOW
+```
 
 ## IRCTC Booking Tips
-- Login **10–15 minutes before** tatkal window opens
-- **Fill passenger details in advance**
+- Login **10–15 min before** tatkal window opens
+- **Pre-fill all passenger details**
 - Solve **CAPTCHA manually**
-- Use **UPI payment** — fastest option
-- Do NOT set `cookieBehavior: 2` (blocks ALL cookies — will log you out!)
+- Use **UPI** — fastest payment method
+- Do NOT change `cookieBehavior` to `2` — it will log you out!
 
 ## Requirements
 - Python 3.8+
 - Linux / Windows / macOS
-- Playwright + Firefox
+- `playwright` + `playwright-stealth`
 
 ## License
 MIT

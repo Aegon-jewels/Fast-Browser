@@ -1,8 +1,9 @@
 import asyncio
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async  # Bypasses Akamai bot detection
 
 # ─────────────────────────────────────────────────────────────
-# AD BLOCKER: Only block pure ad/tracker domains
+# AD BLOCKER: Only block confirmed ad/tracker domains
 # ─────────────────────────────────────────────────────────────
 AD_DOMAINS = [
     "googlesyndication.com", "doubleclick.net", "googleadservices.com",
@@ -17,29 +18,33 @@ AD_DOMAINS = [
 ]
 
 # ─────────────────────────────────────────────────────────────
-# WHITELIST: These domains must NEVER be blocked
-# (IRCTC's own servers, CDNs, payment gateways)
+# WHITELIST: These domains are ALWAYS allowed
+# (IRCTC servers, CDNs, Indian payment gateways)
 # ─────────────────────────────────────────────────────────────
 WHITELIST_DOMAINS = [
     "irctc.co.in",
     "indianrail.gov.in",
     "irctcconnect.in",
+    "akamaized.net",       # IRCTC uses Akamai CDN for assets
+    "akamai.net",
+    "edgekey.net",
     "razorpay.com",
     "payu.in",
     "paytm.com",
     "billdesk.com",
     "sbi.co.in",
-    "axis.bank",
     "hdfcbank.com",
     "icicibank.com",
+    "npci.org.in",         # UPI payments
+    "upi.npci.org.in",
 ]
 
 
 async def ad_blocker(route, request):
-    """Smart ad blocker — whitelist IRCTC first, then block known ad domains."""
+    """Smart ad blocker: whitelist IRCTC/CDN first, then block ad domains."""
     url = request.url
 
-    # STEP 1: Always allow whitelisted domains (IRCTC, payment gateways)
+    # STEP 1: Always allow whitelisted domains
     if any(safe in url for safe in WHITELIST_DOMAINS):
         await route.continue_()
         return
@@ -58,72 +63,88 @@ async def main():
     async with async_playwright() as p:
 
         # ─────────────────────────────────────────────────────────────
-        # LAUNCH FIREFOX with custom about:config prefs
+        # LAUNCH FIREFOX
         # ─────────────────────────────────────────────────────────────
         browser = await p.firefox.launch(
             headless=False,
             firefox_user_prefs={
-                # --- COOKIE SETTINGS ---
-                # 1 = Block THIRD-PARTY cookies only
-                # IRCTC's own session cookies still work!
+                # COOKIES: block third-party only (IRCTC session still works)
                 "network.cookie.cookieBehavior": 1,
 
-                # --- DISABLE ALL CACHE ---
+                # DISABLE ALL CACHE
                 "browser.cache.disk.enable": False,
                 "browser.cache.memory.enable": False,
                 "browser.cache.offline.enable": False,
                 "network.http.use-cache": False,
                 "browser.sessionstore.privacy_level": 2,
 
-                # --- TRACKING PROTECTION ---
+                # TRACKING PROTECTION (social + crypto only, NOT fingerprinting
+                # because stealth handles that better)
                 "privacy.trackingprotection.enabled": True,
                 "privacy.trackingprotection.socialtracking.enabled": True,
                 "privacy.trackingprotection.cryptomining.enabled": True,
-                "privacy.trackingprotection.fingerprinting.enabled": True,
-                "browser.contentblocking.category": "strict",
+                # NOTE: fingerprinting protection OFF — stealth_async handles it
+                "privacy.trackingprotection.fingerprinting.enabled": False,
 
-                # --- DISABLE TELEMETRY ---
+                # DISABLE TELEMETRY
                 "toolkit.telemetry.enabled": False,
                 "datareporting.healthreport.uploadEnabled": False,
+                "browser.ping-centre.telemetry": False,
 
-                # --- PERFORMANCE TWEAKS ---
+                # PERFORMANCE
                 "network.http.max-connections": 900,
                 "network.http.max-persistent-connections-per-server": 10,
 
-                # --- DISABLE POPUPS ---
+                # DISABLE ANNOYING POPUPS
                 "geo.enabled": False,
                 "dom.webnotifications.enabled": False,
                 "dom.push.enabled": False,
+
+                # ALLOW MIXED CONTENT (fixes "not secured" warnings)
+                "security.mixed_content.block_active_content": False,
+                "security.mixed_content.block_display_content": False,
             }
         )
 
         # ─────────────────────────────────────────────────────────────
-        # CREATE BROWSER CONTEXT WITH PROPER VIEWPORT (1366x768 HD)
+        # BROWSER CONTEXT — FULL HD 1920x1080 + SSL errors ignored
         # ─────────────────────────────────────────────────────────────
         context = await browser.new_context(
-            viewport={"width": 1366, "height": 768},   # <-- FIXED resolution
+            viewport={"width": 1920, "height": 1080},  # Full HD
+            screen={"width": 1920, "height": 1080},    # Match screen size too
             user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) "
-                "Gecko/20100101 Firefox/122.0"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) "
+                "Gecko/20100101 Firefox/124.0"
             ),
+            ignore_https_errors=True,   # Fixes "Connection not secure" warning
             service_workers="block",
-            locale="en-IN",                             # Indian locale
-            timezone_id="Asia/Kolkata",                 # IST timezone
+            locale="en-IN",
+            timezone_id="Asia/Kolkata",
+            extra_http_headers={
+                "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "DNT": "1",
+            },
         )
 
-        # Clear leftover cookies before starting
         await context.clear_cookies()
         print("[INFO] Cookies cleared.")
-        print("[INFO] Viewport set to 1366x768.")
+        print("[INFO] Viewport: 1920x1080 Full HD.")
+        print("[INFO] HTTPS errors ignored.")
 
         # ─────────────────────────────────────────────────────────────
-        # OPEN PAGE + ATTACH SMART AD BLOCKER
+        # OPEN PAGE
         # ─────────────────────────────────────────────────────────────
         page = await context.new_page()
 
-        # Smart ad blocker (whitelists IRCTC so UI doesn't break)
+        # APPLY STEALTH — hides Playwright from Akamai/Cloudflare bot detection
+        # This fixes the "Unable to Process Request" error on IRCTC
+        await stealth_async(page)
+        print("[INFO] Stealth mode ON — Akamai bot detection bypassed.")
+
+        # Attach smart ad blocker
         await page.route("**/*", ad_blocker)
-        print("[INFO] Smart Ad Blocker active — IRCTC domains whitelisted.")
+        print("[INFO] Smart Ad Blocker active.")
 
         # ─────────────────────────────────────────────────────────────
         # GO TO IRCTC
@@ -135,11 +156,12 @@ async def main():
             timeout=60000
         )
 
-        # Wait for IRCTC Angular app to fully load
-        await page.wait_for_timeout(3000)
-        print("[INFO] IRCTC loaded successfully!")
-        print("[INFO] Login karein manually aur ticket book karein.")
-        print("[INFO] CAPTCHA manually fill karna hoga.")
+        # Wait for Angular app to fully render
+        await page.wait_for_timeout(4000)
+        print("[INFO] IRCTC loaded!")
+        print("[INFO] Ab manually login karein aur ticket book karein.")
+        print("[INFO] CAPTCHA manually bhar dena — auto solve nahi hoga.")
+        print("[INFO] Browser 10 minutes tak open rahega.")
 
         # Keep browser open for 10 minutes
         await page.wait_for_timeout(600_000)
@@ -148,5 +170,4 @@ async def main():
         await browser.close()
 
 
-# Run
 asyncio.run(main())
